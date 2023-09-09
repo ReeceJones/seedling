@@ -1,0 +1,54 @@
+{
+    "managers": {
+        "port_allocator": {
+            "start_port": 23001,
+            "end_port": 24000
+        }
+    },
+    "services": [
+        {
+            "key": "qbittorrent",
+            "name": "qBittorrent",
+            "description": "qBittorrent is a free and open-source BitTorrent client.",
+            "links": [
+                {
+                    "name": "Website",
+                    "url": "https://www.qbittorrent.org/"
+                },
+                {
+                    "name": "Source",
+                    "url": "https://github.com/qbittorrent/qBittorrent"
+                }
+            ],
+            "icon": "https://www.qbittorrent.org/favicon-32x32.png",
+            "tags": [
+                "Torrent"
+            ],
+            "helm": {
+                "remote_type": "oci",
+                "release_name_format": "{{ .Key }}-{{ .Username }}",
+                "oci": {
+                    "chart_url": "oci://ghcr.io/gabe565/charts/qbittorrent"
+                },
+                "values": [
+                    {
+                        "name": "port",
+                        "paths": [
+                            {
+                                "path": "env",
+                                "key": "WEBUI_PORT"
+                            },
+                            {
+                                "path": "service.main.ports.http.port",
+                                "key": ""
+                            }
+                        ],
+                        "default": "8080",
+                        "description": "The port to expose the qBittorrent web UI on.",
+                        "manager": "port_allocator"
+                    }
+                ]
+            }
+        }
+    ]
+}
