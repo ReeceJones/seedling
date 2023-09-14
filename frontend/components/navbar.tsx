@@ -4,6 +4,8 @@ import { NavigationMenu, NavigationMenuContent, NavigationMenuItem, NavigationMe
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Badge } from "@/components/ui/badge"
 import Link from "next/link"
+import {useState, useEffect} from "react"
+import {login} from "@/lib/auth"
 
 const apps = [
   {
@@ -44,6 +46,25 @@ const apps = [
 ]
 
 export default function Navbar() {
+    const [ loggedIn, setLoggedIn ] = useState(false)
+    useEffect(() => {
+        const token = localStorage.getItem("token")
+        if (token) {
+          setLoggedIn(true)
+        }
+    }, [])
+
+    function logout(e: any) {
+      e.preventDefault()
+      localStorage.removeItem("token")
+      setLoggedIn(false)
+    }
+
+    async function test_login(e: any) {
+      e.preventDefault()
+      login("reece_jones@icloud.com", "password")
+      setLoggedIn(true)
+    }
     return (
       <div className="w-full flex border-b-2">
         <NavigationMenu className="p-4">
@@ -94,12 +115,24 @@ export default function Navbar() {
               </Avatar>
             </DropdownMenuTrigger>
             <DropdownMenuContent className="w-60">
-              <DropdownMenuItem>
-                <Link href="/settings">Settings</Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem>
-                <Link href="/logout">Logout</Link>
-              </DropdownMenuItem>
+              {
+                loggedIn ? (
+                  <>
+                    <DropdownMenuItem>
+                      <Link href="/settings">Settings</Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem>
+                      <Link href="/logout" onClick={logout}>Logout</Link>
+                    </DropdownMenuItem>
+                  </>
+                ) : (
+                  <>
+                    <DropdownMenuItem>
+                      <Link href="/login" onClick={test_login}>Login</Link>
+                    </DropdownMenuItem>
+                  </>
+                )
+              }
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

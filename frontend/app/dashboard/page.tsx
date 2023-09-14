@@ -1,16 +1,15 @@
 "use client"
 import dynamic from "next/dynamic"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardFooter, CardDescription, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {Table, TableBody, TableCell, TableHead, TableHeader, TableRow} from "@/components/ui/table"
 import { Progress } from "@/components/ui/progress"
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card"
 import { Pie, Cell, XAxis, YAxis, Line, ResponsiveContainer, Tooltip } from "recharts"
 import {Alert, AlertTitle, AlertDescription} from "@/components/ui/alert"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import Link from "next/link"
-import Navbar from '@/components/navbar'
+import { useEffect, useState } from "react"
+import { InstalledService, getInstalledServices } from "@/lib/services"
 
 const LineChart = dynamic(
   () => import('recharts').then((mod) => mod.LineChart),
@@ -173,9 +172,14 @@ function lineChartTooltip(d: any) {
 }
 
 export default function Home() {
+  const [ installedServices, setInstalledServices ] = useState<InstalledService[]>([])
+  useEffect(() => {
+    getInstalledServices().then(res => {
+      setInstalledServices(res)
+    })
+  }, [])
   return (
     <>
-      <Navbar />
       <div className="w-full p-10">
         <div className="mx-auto w-[1200px]">
           <div className="m-4">
@@ -196,13 +200,20 @@ export default function Home() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {services.map((service) => (
+                    {/* {services.map((service) => (
                       <TableRow key={service.name}>
                         <TableCell><span className="font-bold">{service.name}</span></TableCell>
                         <TableCell><Badge>{service.status}</Badge></TableCell>
                         <TableCell className="text-right"><Link className="hover:underline transition" href={service.url}>{service.url}</Link></TableCell>
                       </TableRow>
-                    ))}
+                    ))} */}
+                    {installedServices.map((service) => (
+                        <TableRow key={service.name}>
+                          <TableCell><span className="font-bold">{service.name}</span></TableCell>
+                          <TableCell><Badge>running</Badge></TableCell>
+                          <TableCell className="text-right"><Link className="hover:underline transition" href={service.live_url}>{service.live_url}</Link></TableCell>
+                        </TableRow>
+                      ))}
                   </TableBody>
                 </Table>
               </CardContent>

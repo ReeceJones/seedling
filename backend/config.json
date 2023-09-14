@@ -10,16 +10,9 @@
             "key": "qbittorrent",
             "name": "qBittorrent",
             "description": "qBittorrent is a free and open-source BitTorrent client.",
-            "links": [
-                {
-                    "name": "Website",
-                    "url": "https://www.qbittorrent.org/"
-                },
-                {
-                    "name": "Source",
-                    "url": "https://github.com/qbittorrent/qBittorrent"
-                }
-            ],
+            "links": {
+                "project_url": "https://www.qbittorrent.org/"
+            },
             "icon": "https://www.qbittorrent.org/favicon-32x32.png",
             "tags": [
                 "Torrent"

@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -35,8 +36,7 @@ var (
 // config structs
 
 type LinkConfig struct {
-	Name string `json:"name"`
-	URL  string `json:"url"`
+	ProjectURL string `json:"project_url"`
 }
 
 type OCIConfig struct {
@@ -70,13 +70,13 @@ type HelmConfig struct {
 }
 
 type ServiceConfig struct {
-	Key         string       `json:"key"`
-	Name        string       `json:"name"`
-	Description string       `json:"description"`
-	Links       []LinkConfig `json:"links"`
-	Icon        string       `json:"icon"`
-	Tags        []string     `json:"tags"`
-	Helm        HelmConfig   `json:"helm"`
+	Key         string     `json:"key"`
+	Name        string     `json:"name"`
+	Description string     `json:"description"`
+	Links       LinkConfig `json:"links"`
+	Icon        string     `json:"icon"`
+	Tags        []string   `json:"tags"`
+	Helm        HelmConfig `json:"helm"`
 }
 
 type PortAllocatorConfig struct {
@@ -157,6 +157,7 @@ type Service struct {
 	Name        string
 	Description string
 	ProjectURL  string
+	Icon        string
 }
 
 type InstalledService struct {
@@ -248,32 +249,33 @@ type LoginUserResponseSchema struct {
 	Data  UserDataSchema `json:"data"`
 }
 
-type ServiceDataSchema struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	LiveURL     string `json:"project_url"`
-}
-
 type ServiceInfoSchema struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	Key         string `json:"key"`
 	ProjectURL  string `json:"project_url"`
-	Links       []struct {
-		Name string `json:"name"`
-		URL  string `json:"url"`
-	} `json:"links"`
-	Icon string   `json:"icon"`
-	Tags []string `json:"tags"`
+	IsInstalled bool   `json:"is_installed"`
+	IsAvailable bool   `json:"is_available"`
+	IsRunning   bool   `json:"is_running"`
+	Status      string `json:"status"`
+	Icon        string `json:"icon"`
+}
+
+type InstalledServiceSchema struct {
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	LiveURL     string            `json:"live_url"`
+	Service     ServiceInfoSchema `json:"service"`
 }
 
 type ServiceListResponseSchema struct {
-	Ok   bool                `json:"ok"`
-	Data []ServiceDataSchema `json:"data"`
+	Ok   bool                     `json:"ok"`
+	Data []InstalledServiceSchema `json:"data"`
 }
 
 type ServiceGetInstalledResponseSchema struct {
-	Ok   bool              `json:"ok"`
-	Data ServiceDataSchema `json:"data"`
+	Ok   bool                   `json:"ok"`
+	Data InstalledServiceSchema `json:"data"`
 }
 
 type ServiceGetInfoResponseSchema struct {
@@ -281,13 +283,18 @@ type ServiceGetInfoResponseSchema struct {
 	Data ServiceInfoSchema `json:"data"`
 }
 
+type ServiceListInfoResponseSchema struct {
+	Ok   bool                `json:"ok"`
+	Data []ServiceInfoSchema `json:"data"`
+}
+
 type ServiceInstallRequestSchema struct {
-	Name string `json:"name"`
+	Key string `json:"key"`
 }
 
 type ServiceInstallResponseSchema struct {
-	Ok   bool              `json:"ok"`
-	Data ServiceDataSchema `json:"data"`
+	Ok   bool                   `json:"ok"`
+	Data InstalledServiceSchema `json:"data"`
 }
 
 type ServiceUnInstallResponseSchema struct {
@@ -302,6 +309,8 @@ func initializeServiceSpecs() error {
 			Key:         service.Key,
 			Name:        service.Name,
 			Description: service.Description,
+			Icon:        service.Icon,
+			ProjectURL:  service.Links.ProjectURL,
 		}
 		tx := db.Where("key = ?", service.Key).First(&dbService)
 		if tx.Error != nil {
@@ -312,6 +321,8 @@ func initializeServiceSpecs() error {
 		} else {
 			dbService.Name = service.Name
 			dbService.Description = service.Description
+			dbService.ProjectURL = service.Links.ProjectURL
+			dbService.Icon = service.Icon
 			tx = db.Save(&dbService)
 			if tx.Error != nil {
 				return tx.Error
@@ -328,6 +339,76 @@ func initializeDB() error {
 	}
 
 	return nil
+}
+
+// helpers
+
+func isServiceInstalled(service Service, userId uint) (bool, error) {
+	var installedService InstalledService
+	tx := db.Where("user_id = ? and service_id = ?", userId, service.ID).First(&installedService)
+	if tx.Error != nil {
+		if errors.Is(tx.Error, gorm.ErrRecordNotFound) {
+			return false, nil
+		}
+		return false, tx.Error
+	}
+	return true, nil
+}
+
+func isServiceAvailable(service Service, userId uint) (bool, error) {
+	return true, nil
+}
+
+func isServiceRunning(service Service, userId uint) (bool, error) {
+	installed, err := isServiceInstalled(service, userId)
+	if err != nil {
+		return false, err
+	}
+	if !installed {
+		return false, nil
+	}
+	return true, nil
+}
+
+func getServiceStatus(service Service, userId uint) (string, error) {
+	installed, err := isServiceInstalled(service, userId)
+	if err != nil {
+		return "", err
+	}
+	if !installed {
+		return "not_installed", nil
+	}
+	return "running", nil
+}
+
+func makeServiceInfoSchema(service Service, userId uint) (ServiceInfoSchema, error) {
+	installed, err := isServiceInstalled(service, userId)
+	if err != nil {
+		return ServiceInfoSchema{}, err
+	}
+	available, err := isServiceAvailable(service, userId)
+	if err != nil {
+		return ServiceInfoSchema{}, err
+	}
+	running, err := isServiceRunning(service, userId)
+	if err != nil {
+		return ServiceInfoSchema{}, err
+	}
+	status, err := getServiceStatus(service, userId)
+	if err != nil {
+		return ServiceInfoSchema{}, err
+	}
+	return ServiceInfoSchema{
+		Name:        service.Name,
+		Description: service.Description,
+		Key:         service.Key,
+		ProjectURL:  service.ProjectURL,
+		IsInstalled: installed,
+		IsAvailable: available,
+		IsRunning:   running,
+		Status:      status,
+		Icon:        service.Icon,
+	}, nil
 }
 
 // API handlers
@@ -439,12 +520,17 @@ func getInstalledServices(c echo.Context) error {
 	if tx.Error != nil {
 		return c.JSON(http.StatusInternalServerError, tx.Error)
 	}
-	services := []ServiceDataSchema{}
+	services := []InstalledServiceSchema{}
 	for _, installedService := range results {
-		services = append(services, ServiceDataSchema{
+		serviceInfo, err := makeServiceInfoSchema(installedService.Service, cc.UserID)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, err)
+		}
+		services = append(services, InstalledServiceSchema{
 			Name:        installedService.Service.Name,
 			Description: installedService.Service.Description,
 			LiveURL:     installedService.LiveURL,
+			Service:     serviceInfo,
 		})
 	}
 	return c.JSON(http.StatusOK, ServiceListResponseSchema{
@@ -462,30 +548,59 @@ func getInstalledService(c echo.Context) error {
 	if tx.Error != nil {
 		return c.JSON(http.StatusInternalServerError, tx.Error)
 	}
+	serviceInfo, err := makeServiceInfoSchema(installedService.Service, cc.UserID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, err)
+	}
 	return c.JSON(http.StatusOK, ServiceGetInstalledResponseSchema{
 		Ok: true,
-		Data: ServiceDataSchema{
+		Data: InstalledServiceSchema{
 			Name:        installedService.Service.Name,
 			Description: installedService.Service.Description,
 			LiveURL:     installedService.LiveURL,
+			Service:     serviceInfo,
 		},
 	})
 }
 
+func getServicesInfo(c echo.Context) error {
+	cc := c.(*AuthContext)
+	var services []Service
+	tx := db.Find(&services)
+	if tx.Error != nil {
+		return c.JSON(http.StatusInternalServerError, tx.Error)
+	}
+	servicesInfo := []ServiceInfoSchema{}
+	for _, service := range services {
+		serviceInfo, err := makeServiceInfoSchema(service, cc.UserID)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, err)
+		}
+		servicesInfo = append(servicesInfo, serviceInfo)
+	}
+	return c.JSON(http.StatusOK, ServiceListInfoResponseSchema{
+		Ok:   true,
+		Data: servicesInfo,
+	})
+}
+
 func getServiceInfo(c echo.Context) error {
-	serviceName := c.Param("servicename")
+	cc := c.(*AuthContext)
+	serviceName := cc.Param("servicename") // TODO: use key
 	var service Service
 	tx := db.Where("name = ?", serviceName).First(&service)
 	if tx.Error != nil {
 		return c.JSON(http.StatusInternalServerError, tx.Error)
 	}
+
+	serviceInfo, err := makeServiceInfoSchema(service, cc.UserID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, err)
+	}
+
 	return c.JSON(http.StatusOK, ServiceGetInfoResponseSchema{
-		Ok: true,
-		Data: ServiceInfoSchema{
-			Name:        service.Name,
-			Description: service.Description,
-			ProjectURL:  service.ProjectURL,
-		},
+		Ok:   true,
+		Data: serviceInfo,
 	})
 }
 
@@ -496,10 +611,10 @@ func installService(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, err)
 	}
-	log.Printf("Installing service %s for %s (%s, %d))\n", req.Name, cc.Username, cc.Email, cc.UserID)
+	log.Printf("Installing service %s for %s (%s, %d))\n", req.Key, cc.Username, cc.Email, cc.UserID)
 
 	var service Service
-	tx := db.Where("key = ?", req.Name).First(&service)
+	tx := db.Where("key = ?", req.Key).First(&service)
 	if tx.Error != nil {
 		return c.JSON(http.StatusBadRequest, "Invalid service name")
 	}
@@ -568,7 +683,7 @@ func installService(c echo.Context) error {
 		Wait:            true,
 		UpgradeCRDs:     true,
 		CreateNamespace: true,
-		ValuesOptions: values.Options{ // causes hanging?
+		ValuesOptions: values.Options{
 			Values:     valuesList,
 			JSONValues: jsonValuesList,
 		},
@@ -581,18 +696,25 @@ func installService(c echo.Context) error {
 	installedService = InstalledService{
 		UserID:    userID,
 		ServiceID: service.ID,
+		LiveURL:   fmt.Sprintf(":%d", servicePort),
 	}
 	tx = db.Create(&installedService)
 	if tx.Error != nil {
 		return c.JSON(http.StatusInternalServerError, tx.Error)
 	}
 
+	serviceInfo, err := makeServiceInfoSchema(service, cc.UserID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, err)
+	}
+
 	return c.JSON(http.StatusOK, ServiceInstallResponseSchema{
 		Ok: true,
-		Data: ServiceDataSchema{
+		Data: InstalledServiceSchema{
 			Name:        service.Name,
 			Description: service.Description,
-			LiveURL:     fmt.Sprintf(":%d", servicePort),
+			LiveURL:     installedService.LiveURL,
+			Service:     serviceInfo,
 		},
 	})
 }
@@ -649,6 +771,9 @@ func main() {
 
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
+	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
+		AllowOrigins: []string{"http://localhost:3000"},
+	}))
 	e.Use(echojwt.WithConfig(echojwt.Config{
 		SigningKey: []byte(jwtSecret),
 		Skipper: func(c echo.Context) bool {
@@ -676,6 +801,7 @@ func main() {
 	servicesGroup := v1Group.Group("/services")
 	servicesGroup.GET("/installed", getInstalledServices).Name = "get-installed-services"
 	servicesGroup.GET("/installed/:servicename", getInstalledService).Name = "get-installed-service"
+	servicesGroup.GET("/info", getServicesInfo).Name = "get-services-info"
 	servicesGroup.GET("/info/:servicename", getServiceInfo).Name = "get-service-info"
 	servicesGroup.POST("/install", installService).Name = "install-service"
 	servicesGroup.POST("/uninstall/:servicename", uninstallService).Name = "uninstall-service"
