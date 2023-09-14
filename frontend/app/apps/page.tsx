@@ -117,33 +117,33 @@ import Link from "next/link"
 
 export default function Home() {
   const [ services, setServices ] = useState<Service[]>([])
+  const { toast } = useToast()
+
   useEffect(() => {
     getServices().then((data) => {
       setServices(data)
     })
   }, [])
 
-  const { toast } = useToast()
-
   async function installServiceAsUser(service: Service) {
     toast({
-      title: "System",
-      description: "Installing " + service.name + "...",
+      title: service.name,
+      description: "Installing app...",
       duration: 300_000,
     })
     try {
       await installService(service.key)
       toast({
-        title: "System",
-        description: "Installed " + service.name + "!",
+        title: service.name,
+        description: "Installed app!",
         duration: 300_000,
       })
     }
     catch (e) {
       console.log(e)
       toast({
-        title: "System",
-        description: "Failed to install " + service.name + "!",
+        title: service.name,
+        description: "Failed to install app!",
         duration: 300_000,
       })
     }
